@@ -12,7 +12,19 @@ class ShipmentRequest
    */
   public function __construct(array $data = [])
   {
-    $required = ['carrier', 'pickup_date', 'pickup_time_from', 'pickup_time_to', 'delivery_date', 'delivery_time_from', 'delivery_time_to', 'pickup', 'delivery', 'packages'];
+    $required = [
+      'carrier',
+      'pickup_date',
+      'pickup_time_from',
+      'pickup_time_to',
+      'delivery_date',
+      'delivery_time_from',
+      'delivery_time_to',
+      'pickup',
+      'delivery',
+      'packages'
+    ];
+
     foreach ($required as $field) {
       if (!array_key_exists($field, $data)) {
         throw new \InvalidArgumentException('ShipmentRequest requires ' . $field . '.');

@@ -12,7 +12,18 @@ class QuoteRequest
    */
   public function __construct(array $data = [])
   {
-    $required = ['pickup_date', 'pickup_time_from', 'pickup_time_to', 'delivery_date', 'delivery_time_from', 'delivery_time_to', 'pickup', 'delivery', 'packages'];
+    $required = [
+      'pickup_date',
+      'pickup_time_from',
+      'pickup_time_to',
+      'delivery_date',
+      'delivery_time_from',
+      'delivery_time_to',
+      'pickup',
+      'delivery',
+      'packages'
+    ];
+
     foreach ($required as $field) {
       if (!array_key_exists($field, $data)) {
         throw new \InvalidArgumentException('QuoteRequest requires ' . $field . '.');
