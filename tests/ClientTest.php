@@ -3,34 +3,54 @@
 namespace NexCargo\Tests;
 
 use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\Exception\TransferException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
+use GuzzleHttp\Psr7\Request as GuzzleRequest;
 use GuzzleHttp\Psr7\Response;
+use NexCargo\ApiException;
 use NexCargo\Client;
+use NexCargo\Tests\Fixtures;
 use NexCargo\Models\Address;
 use NexCargo\Models\Dimensions;
 use NexCargo\Models\Parcel;
 use NexCargo\Models\QuoteRequest;
 use NexCargo\Models\ShipmentRequest;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 
+/**
+ * @phpstan-type HistoryEntry array{
+ *   request: RequestInterface,
+ *   response: ResponseInterface|null,
+ *   error: mixed,
+ *   options: array<mixed>
+ * }
+ * @phpstan-type History array<array-key, HistoryEntry>|\ArrayAccess<int, HistoryEntry>
+ */
 class ClientTest extends TestCase
 {
-  public function testCreateShipmentSendsRequestToExpectedEndpoint(): void
+  /**
+   * @param History $history
+   */
+  private function getHistoryRequest(array|\ArrayAccess $history): RequestInterface
   {
-    /** @var array<int, array<string, mixed>> $history */
-    $history = [];
-    $mock = new MockHandler([
-      new Response(200, [], '{"id":"abc123"}'),
-    ]);
+    if (!isset($history[0])) {
+      self::fail('No HTTP request was recorded.');
+    }
 
-    $handlerStack = HandlerStack::create($mock);
-    $handlerStack->push(Middleware::history($history));
-    $guzzle = new GuzzleClient(['handler' => $handlerStack]);
-    $client = new Client('test-key', 'https://api.example.com', $guzzle);
+    return $history[0]['request'];
+  }
 
-    $shipmentRequest = new ShipmentRequest([
+  /**
+   * @return iterable<string, array{0: ShipmentRequest, 1: array<string, mixed>}>
+   */
+  public static function shipmentRequestProvider(): iterable
+  {
+    $shipmentFields = [
       'carrier' => 'auto',
       'pickup_date' => '2026-01-15',
       'pickup_time_from' => '09:00',
@@ -38,45 +58,72 @@ class ClientTest extends TestCase
       'delivery_date' => '2026-01-16',
       'delivery_time_from' => '08:00',
       'delivery_time_to' => '18:00',
-      'pickup' => [
-        'name' => 'Musterfirma GmbH',
-        'street' => 'Musterstraße',
-        'house_number' => '123',
-        'zipcode' => '50667',
-        'city' => 'Köln',
-        'country' => 'DE',
-      ],
-      'delivery' => [
-        'name' => 'Empfänger GmbH',
-        'street' => 'Beispielweg',
-        'house_number' => '456',
-        'zipcode' => '10115',
-        'city' => 'Berlin',
-        'country' => 'DE',
-      ],
-      'packages' => [
-        [
-          'weight' => 15.5,
-          'length' => 60,
-          'width' => 40,
-          'height' => 30,
-        ],
-      ],
-    ]);
-    $response = $client->createShipment($shipmentRequest);
+    ];
+    $pickupData = [
+      'name' => 'Musterfirma GmbH',
+      'street' => 'Musterstraße',
+      'house_number' => '123',
+      'zipcode' => '50667',
+      'city' => 'Köln',
+      'country' => 'DE',
+    ];
+    $deliveryData = [
+      'name' => 'Empfänger GmbH',
+      'street' => 'Beispielweg',
+      'house_number' => '456',
+      'zipcode' => '10115',
+      'city' => 'Berlin',
+      'country' => 'DE',
+    ];
+    $packageData = ['weight' => 15.5, 'length' => 60, 'width' => 40, 'height' => 30];
 
-    $this->assertSame(200, $response->getStatusCode());
-    $this->assertTrue(isset($history[0]));
-    $this->assertSame('POST', $history[0]['request']->getMethod());
-    $this->assertSame('/api/v1/shipments', (string) $history[0]['request']->getUri()->getPath());
-    $this->assertSame('{"carrier":"auto","pickup_date":"2026-01-15","pickup_time_from":"09:00","pickup_time_to":"12:00","delivery_date":"2026-01-16","delivery_time_from":"08:00","delivery_time_to":"18:00","pickup":{"name":"Musterfirma GmbH","street":"Musterstra\u00dfe","house_number":"123","zipcode":"50667","city":"K\u00f6ln","country":"DE"},"delivery":{"name":"Empf\u00e4nger GmbH","street":"Beispielweg","house_number":"456","zipcode":"10115","city":"Berlin","country":"DE"},"packages":[{"weight":15.5,"length":60,"width":40,"height":30}]}', (string) $history[0]['request']->getBody());
+    yield 'raw array payload' => [
+      new ShipmentRequest($shipmentFields + [
+        'pickup' => $pickupData,
+        'delivery' => $deliveryData,
+        'packages' => [$packageData],
+      ]),
+      $shipmentFields + [
+        'pickup' => $pickupData,
+        'delivery' => $deliveryData,
+        'packages' => [$packageData],
+      ],
+    ];
+
+    yield 'model object payload' => [
+      new ShipmentRequest($shipmentFields + [
+        'pickup' => new Address($pickupData),
+        'delivery' => new Address($deliveryData),
+        'packages' => [new Parcel([
+          'weight' => $packageData['weight'],
+          'dimensions' => new Dimensions($packageData),
+        ])],
+      ]),
+      $shipmentFields + [
+        'pickup' => $pickupData,
+        'delivery' => $deliveryData,
+        'packages' => [[
+          'weight' => $packageData['weight'],
+          'dimensions' => [
+            'length' => $packageData['length'],
+            'width' => $packageData['width'],
+            'height' => $packageData['height'],
+          ],
+        ]],
+      ],
+    ];
   }
 
-  public function testGetShipmentLabelUsesLabelEndpoint(): void
+  /**
+   * @param array<string, mixed> $expectedBody
+   */
+  #[DataProvider('shipmentRequestProvider')]
+  public function testCreateShipmentSerializesPayload(ShipmentRequest $shipmentRequest, array $expectedBody): void
   {
+    /** @var History $history */
     $history = [];
     $mock = new MockHandler([
-      new Response(200, [], 'pdf-content'),
+      new Response(200, [], '{"success":true,"data":{"id":"abc123"}}'),
     ]);
 
     $handlerStack = HandlerStack::create($mock);
@@ -84,18 +131,294 @@ class ClientTest extends TestCase
     $guzzle = new GuzzleClient(['handler' => $handlerStack]);
     $client = new Client('test-key', 'https://api.example.com', $guzzle);
 
-    $response = $client->getShipmentLabel('abc123');
+    $response = $client->createShipment($shipmentRequest);
+    $request = $this->getHistoryRequest($history);
 
-    $this->assertSame(200, $response->getStatusCode());
-    $this->assertSame('GET', $history[0]['request']->getMethod());
-    $this->assertSame('/api/v1/shipments/abc123/label', (string) $history[0]['request']->getUri()->getPath());
+    $this->assertSame(['success' => true, 'data' => ['id' => 'abc123']], $response);
+    $this->assertSame('POST', $request->getMethod());
+    $this->assertSame('/api/v1/shipments', (string) $request->getUri()->getPath());
+    $this->assertSame($expectedBody, json_decode((string) $request->getBody(), true));
+  }
+
+  public function testGetShipmentLabelContentUsesLabelEndpoint(): void
+  {
+    /** @var History $history */
+    $history = [];
+    $labelResponse = json_encode([
+      'success' => true,
+      'data' => [
+        'label' => [
+          'format' => 'pdf',
+          'encoding' => 'base64',
+          'content' => base64_encode('%PDF-1.4'),
+        ],
+      ],
+    ], JSON_THROW_ON_ERROR);
+    $mock = new MockHandler([
+      new Response(200, [], $labelResponse),
+    ]);
+
+    $handlerStack = HandlerStack::create($mock);
+    $handlerStack->push(Middleware::history($history));
+    $guzzle = new GuzzleClient(['handler' => $handlerStack]);
+    $client = new Client('test-key', 'https://api.example.com', $guzzle);
+
+    $pdfContents = $client->getShipmentLabelContent('abc123');
+    $request = $this->getHistoryRequest($history);
+
+    $this->assertSame('%PDF-1.4', $pdfContents);
+    $this->assertSame('GET', $request->getMethod());
+    $this->assertSame('/api/v1/shipments/abc123/label', (string) $request->getUri()->getPath());
+  }
+
+  public function testGetShipmentLabelContentDecodesPdfContent(): void
+  {
+    $pdfContents = '%PDF-1.4';
+    $labelResponse = json_encode([
+      'success' => true,
+      'data' => [
+        'label' => [
+          'format' => 'pdf',
+          'encoding' => 'base64',
+          'content' => base64_encode($pdfContents),
+        ],
+      ],
+    ], JSON_THROW_ON_ERROR);
+    $mock = new MockHandler([
+      new Response(200, [], $labelResponse),
+    ]);
+
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+    ]));
+
+    $this->assertSame($pdfContents, $client->getShipmentLabelContent('abc123'));
+  }
+
+  public function testGetShipmentLabelContentRejectsInvalidJson(): void
+  {
+    $mock = new MockHandler([
+      new Response(200, [], '{invalid-json'),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The shipment label response contains invalid JSON.');
+
+    $client->getShipmentLabelContent('abc123');
+  }
+
+  public function testGetShipmentLabelContentRejectsMissingLabelData(): void
+  {
+    $mock = new MockHandler([
+      new Response(200, [], '{"success":true,"data":{}}'),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The shipment label response is missing the label data.');
+
+    $client->getShipmentLabelContent('abc123');
+  }
+
+  public function testGetShipmentLabelContentRejectsUnsupportedFormat(): void
+  {
+    $mock = new MockHandler([
+      new Response(200, [], json_encode([
+        'success' => true,
+        'data' => ['label' => ['format' => 'png', 'encoding' => 'base64', 'content' => 'abc']],
+      ], JSON_THROW_ON_ERROR)),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The shipment label response has an unsupported format or encoding.');
+
+    $client->getShipmentLabelContent('abc123');
+  }
+
+  public function testGetShipmentLabelContentRejectsMissingContent(): void
+  {
+    $mock = new MockHandler([
+      new Response(200, [], json_encode([
+        'success' => true,
+        'data' => ['label' => ['format' => 'pdf', 'encoding' => 'base64']],
+      ], JSON_THROW_ON_ERROR)),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The shipment label response is missing base64 content.');
+
+    $client->getShipmentLabelContent('abc123');
+  }
+
+  public function testGetShipmentLabelContentRejectsInvalidBase64(): void
+  {
+    $mock = new MockHandler([
+      new Response(200, [], json_encode([
+        'success' => true,
+        'data' => ['label' => ['format' => 'pdf', 'encoding' => 'base64', 'content' => '!!!not-base64!!!']],
+      ], JSON_THROW_ON_ERROR)),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The shipment label content is not valid base64.');
+
+    $client->getShipmentLabelContent('abc123');
+  }
+
+  public function testApiErrorIncludesCodeAndDetails(): void
+  {
+    $mock = new MockHandler([
+      new Response(422, [], json_encode([
+        'success' => false,
+        'error' => [
+          'code' => 'VALIDATION_ERROR',
+          'message' => 'The shipment data is invalid',
+          'details' => [
+            'pickup_date' => [
+              'The pickup date field must be a date after or equal to today.',
+            ],
+          ],
+        ],
+      ], JSON_THROW_ON_ERROR)),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+      'http_errors' => false,
+    ]));
+
+    try {
+      $client->getShipmentTracking('abc123');
+      self::fail('Expected an ApiException.');
+    } catch (ApiException $exception) {
+      $this->assertSame('The shipment data is invalid', $exception->getMessage());
+      $this->assertSame('VALIDATION_ERROR', $exception->getApiCode());
+      $this->assertSame([
+        'pickup_date' => [
+          'The pickup date field must be a date after or equal to today.',
+        ],
+      ], $exception->getDetails());
+    }
+  }
+
+  public function testHttpErrorWithNonJsonBodyUsesStatusMessage(): void
+  {
+    $mock = new MockHandler([
+      new Response(500, [], 'Internal Server Error'),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+      'http_errors' => false,
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The shipment tracking request failed with HTTP status 500.');
+
+    $client->getShipmentTracking('abc123');
+  }
+
+  public function testHttpErrorWithJsonBodyButNoErrorKeyUsesStatusMessage(): void
+  {
+    $mock = new MockHandler([
+      new Response(500, [], '{"success":false}'),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+      'http_errors' => false,
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The shipment tracking request failed with HTTP status 500.');
+
+    $client->getShipmentTracking('abc123');
+  }
+
+  public function testErrorWithoutMessageUsesFallbackMessage(): void
+  {
+    $mock = new MockHandler([
+      new Response(422, [], '{"success":false,"error":{"code":"VALIDATION_ERROR"}}'),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+      'http_errors' => false,
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The shipment tracking request failed.');
+
+    $client->getShipmentTracking('abc123');
+  }
+
+  public function testUnsuccessfulResponseWithoutErrorKeyUsesFallbackMessage(): void
+  {
+    $mock = new MockHandler([
+      new Response(200, [], '{"success":false}'),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The shipment tracking response was not successful.');
+
+    $client->getShipmentTracking('abc123');
+  }
+
+  public function testSuccessfulResponseThatIsNotAJsonObjectIsRejected(): void
+  {
+    $mock = new MockHandler([
+      new Response(200, [], '"just a string"'),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The shipment tracking response must contain a JSON object.');
+
+    $client->getShipmentTracking('abc123');
+  }
+
+  public function testGetShipmentTrackingRejectsMissingTrackingData(): void
+  {
+    $mock = new MockHandler([
+      new Response(200, [], '{"success":true}'),
+    ]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The shipment tracking response is missing tracking data.');
+
+    $client->getShipmentTracking('abc123');
   }
 
   public function testGetShipmentTrackingUsesTrackingEndpoint(): void
   {
+    /** @var History $history */
     $history = [];
     $mock = new MockHandler([
-      new Response(200, [], '{"status":"in_transit"}'),
+      new Response(200, [], json_encode([
+        'success' => true,
+        'data' => [
+          'tracking_number' => '49111091097',
+          'status' => 'CANCELLED',
+        ],
+      ], JSON_THROW_ON_ERROR)),
     ]);
 
     $handlerStack = HandlerStack::create($mock);
@@ -104,16 +427,23 @@ class ClientTest extends TestCase
     $client = new Client('test-key', 'https://api.example.com', $guzzle);
 
     $response = $client->getShipmentTracking('abc123');
+    $request = $this->getHistoryRequest($history);
 
-    $this->assertSame(200, $response->getStatusCode());
-    $this->assertSame('/api/v1/shipments/abc123/tracking', (string) $history[0]['request']->getUri()->getPath());
+    $this->assertSame('49111091097', $response['data']['tracking_number']);
+    $this->assertSame('/api/v1/shipments/abc123/tracking', (string) $request->getUri()->getPath());
   }
 
   public function testCancelShipmentUsesDeleteEndpoint(): void
   {
+    /** @var History $history */
     $history = [];
     $mock = new MockHandler([
-      new Response(204, []),
+      new Response(200, [], json_encode([
+        'success' => true,
+        'data' => [
+          'message' => 'Shipment cancelled successfully',
+        ],
+      ], JSON_THROW_ON_ERROR)),
     ]);
 
     $handlerStack = HandlerStack::create($mock);
@@ -121,25 +451,19 @@ class ClientTest extends TestCase
     $guzzle = new GuzzleClient(['handler' => $handlerStack]);
     $client = new Client('test-key', 'https://api.example.com', $guzzle);
 
-    $response = $client->cancelShipment('abc123');
+    $cancelled = $client->cancelShipment('abc123');
+    $request = $this->getHistoryRequest($history);
 
-    $this->assertSame(204, $response->getStatusCode());
-    $this->assertSame('DELETE', $history[0]['request']->getMethod());
+    $this->assertSame('Shipment cancelled successfully', $cancelled['data']['message']);
+    $this->assertSame('DELETE', $request->getMethod());
   }
 
-  public function testQuoteShipmentUsesQuoteEndpoint(): void
+  /**
+   * @return iterable<string, array{0: QuoteRequest, 1: array<string, mixed>}>
+   */
+  public static function quoteRequestProvider(): iterable
   {
-    $history = [];
-    $mock = new MockHandler([
-      new Response(200, [], '{"amount": 42.5}'),
-    ]);
-
-    $handlerStack = HandlerStack::create($mock);
-    $handlerStack->push(Middleware::history($history));
-    $guzzle = new GuzzleClient(['handler' => $handlerStack]);
-    $client = new Client('test-key', 'https://api.example.com', $guzzle);
-
-    $quoteRequest = new QuoteRequest([
+    $quoteFields = [
       'carrier' => 'auto',
       'pickup_date' => '2026-01-15',
       'pickup_time_from' => '09:00',
@@ -147,200 +471,138 @@ class ClientTest extends TestCase
       'delivery_date' => '2026-01-16',
       'delivery_time_from' => '08:00',
       'delivery_time_to' => '18:00',
-      'pickup' => [
-        'name' => 'Musterfirma GmbH',
-        'street' => 'Musterstraße',
-        'house_number' => '123',
-        'zipcode' => '50667',
-        'city' => 'Köln',
-        'country' => 'DE',
+    ];
+    $pickupData = [
+      'name' => 'Musterfirma GmbH',
+      'street' => 'Musterstraße',
+      'house_number' => '123',
+      'zipcode' => '50667',
+      'city' => 'Köln',
+      'country' => 'DE',
+    ];
+    $deliveryData = [
+      'name' => 'Empfänger GmbH',
+      'street' => 'Beispielweg',
+      'house_number' => '456',
+      'zipcode' => '10115',
+      'city' => 'Berlin',
+      'country' => 'DE',
+    ];
+    $packageData = ['weight' => 15.5, 'length' => 60, 'width' => 40, 'height' => 30];
+
+    yield 'raw array payload' => [
+      new QuoteRequest($quoteFields + [
+        'pickup' => $pickupData,
+        'delivery' => $deliveryData,
+        'packages' => [$packageData],
+      ]),
+      $quoteFields + [
+        'pickup' => $pickupData,
+        'delivery' => $deliveryData,
+        'packages' => [$packageData],
       ],
-      'delivery' => [
-        'name' => 'Empfänger GmbH',
-        'street' => 'Beispielweg',
-        'house_number' => '456',
-        'zipcode' => '10115',
-        'city' => 'Berlin',
-        'country' => 'DE',
+    ];
+
+    yield 'model object payload' => [
+      new QuoteRequest($quoteFields + [
+        'pickup' => new Address($pickupData),
+        'delivery' => new Address($deliveryData),
+        'packages' => [new Parcel([
+          'weight' => $packageData['weight'],
+          'dimensions' => new Dimensions($packageData),
+        ])],
+      ]),
+      $quoteFields + [
+        'pickup' => $pickupData,
+        'delivery' => $deliveryData,
+        'packages' => [[
+          'weight' => $packageData['weight'],
+          'dimensions' => [
+            'length' => $packageData['length'],
+            'width' => $packageData['width'],
+            'height' => $packageData['height'],
+          ],
+        ]],
       ],
-      'packages' => [
-        [
-          'weight' => 15.5,
-          'length' => 60,
-          'width' => 40,
-          'height' => 30,
-        ],
-      ],
+    ];
+  }
+
+  /**
+   * @param array<string, mixed> $expectedBody
+   */
+  #[DataProvider('quoteRequestProvider')]
+  public function testQuoteShipmentSerializesPayload(QuoteRequest $quoteRequest, array $expectedBody): void
+  {
+    /** @var History $history */
+    $history = [];
+    $mock = new MockHandler([
+      new Response(200, [], '{"success":true,"data":{"amount":42.5}}'),
     ]);
+
+    $handlerStack = HandlerStack::create($mock);
+    $handlerStack->push(Middleware::history($history));
+    $guzzle = new GuzzleClient(['handler' => $handlerStack]);
+    $client = new Client('test-key', 'https://api.example.com', $guzzle);
+
     $response = $client->quoteShipment($quoteRequest);
+    $request = $this->getHistoryRequest($history);
 
-    $this->assertSame(200, $response->getStatusCode());
-    $this->assertSame('/api/v1/shipments/quote', (string) $history[0]['request']->getUri()->getPath());
-    $this->assertSame('{"carrier":"auto","pickup_date":"2026-01-15","pickup_time_from":"09:00","pickup_time_to":"12:00","delivery_date":"2026-01-16","delivery_time_from":"08:00","delivery_time_to":"18:00","pickup":{"name":"Musterfirma GmbH","street":"Musterstra\u00dfe","house_number":"123","zipcode":"50667","city":"K\u00f6ln","country":"DE"},"delivery":{"name":"Empf\u00e4nger GmbH","street":"Beispielweg","house_number":"456","zipcode":"10115","city":"Berlin","country":"DE"},"packages":[{"weight":15.5,"length":60,"width":40,"height":30}]}', (string) $history[0]['request']->getBody());
+    $this->assertSame(['success' => true, 'data' => ['amount' => 42.5]], $response);
+    $this->assertSame('/api/v1/shipments/quote', (string) $request->getUri()->getPath());
+    $this->assertSame($expectedBody, json_decode((string) $request->getBody(), true));
   }
 
-  public function testCreateShipmentSerializesNestedPayloadModels(): void
+  public function testRequestWrapsGuzzleExceptionInApiException(): void
   {
-    $history = [];
-    $mock = new MockHandler([
-      new Response(200, [], '{"id":"abc123"}'),
-    ]);
-
-    $handlerStack = HandlerStack::create($mock);
-    $handlerStack->push(Middleware::history($history));
-    $guzzle = new GuzzleClient(['handler' => $handlerStack]);
+    $mock = new MockHandler([new TransferException('Connection failed', new GuzzleRequest('GET', '/'))]);
+    $guzzle = new GuzzleClient(['handler' => HandlerStack::create($mock)]);
     $client = new Client('test-key', 'https://api.example.com', $guzzle);
 
-    $shipmentRequest = new ShipmentRequest([
-      'carrier' => 'auto',
-      'pickup_date' => '2026-01-15',
-      'pickup_time_from' => '09:00',
-      'pickup_time_to' => '12:00',
-      'delivery_date' => '2026-01-16',
-      'delivery_time_from' => '08:00',
-      'delivery_time_to' => '18:00',
-      'pickup' => new Address([
-        'name' => 'Musterfirma GmbH',
-        'street' => 'Musterstraße',
-        'house_number' => '123',
-        'zipcode' => '50667',
-        'city' => 'Köln',
-        'country' => 'DE',
-      ]),
-      'delivery' => new Address([
-        'name' => 'Empfänger GmbH',
-        'street' => 'Beispielweg',
-        'house_number' => '456',
-        'zipcode' => '10115',
-        'city' => 'Berlin',
-        'country' => 'DE',
-      ]),
-      'packages' => [
-        new Parcel([
-          'weight' => 15.5,
-          'dimensions' => new Dimensions(['length' => 60, 'width' => 40, 'height' => 30]),
-        ]),
-      ],
-    ]);
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('Connection failed');
 
-    $client->createShipment($shipmentRequest);
-
-    $this->assertSame([
-      'carrier' => 'auto',
-      'pickup_date' => '2026-01-15',
-      'pickup_time_from' => '09:00',
-      'pickup_time_to' => '12:00',
-      'delivery_date' => '2026-01-16',
-      'delivery_time_from' => '08:00',
-      'delivery_time_to' => '18:00',
-      'pickup' => [
-        'name' => 'Musterfirma GmbH',
-        'street' => 'Musterstraße',
-        'house_number' => '123',
-        'zipcode' => '50667',
-        'city' => 'Köln',
-        'country' => 'DE',
-      ],
-      'delivery' => [
-        'name' => 'Empfänger GmbH',
-        'street' => 'Beispielweg',
-        'house_number' => '456',
-        'zipcode' => '10115',
-        'city' => 'Berlin',
-        'country' => 'DE',
-      ],
-      'packages' => [
-        [
-          'weight' => 15.5,
-          'dimensions' => ['length' => 60, 'width' => 40, 'height' => 30],
-        ],
-      ],
-    ], json_decode((string) $history[0]['request']->getBody(), true));
+    $client->getShipmentLabelContent('abc123');
   }
 
-  public function testQuoteShipmentSerializesNestedPayloadModels(): void
+  public function testCreateShipmentAcceptsRawArray(): void
   {
-    $history = [];
-    $mock = new MockHandler([
-      new Response(200, [], '{"amount": 42.5}'),
-    ]);
-
-    $handlerStack = HandlerStack::create($mock);
-    $handlerStack->push(Middleware::history($history));
-    $guzzle = new GuzzleClient(['handler' => $handlerStack]);
+    $mock = new MockHandler([new Response(200, [], '{"success":true,"data":{"id":"xyz789"}}')]);
+    $guzzle = new GuzzleClient(['handler' => HandlerStack::create($mock)]);
     $client = new Client('test-key', 'https://api.example.com', $guzzle);
 
-    $quoteRequest = new QuoteRequest([
-      'carrier' => 'auto',
-      'pickup_date' => '2026-01-15',
-      'pickup_time_from' => '09:00',
-      'pickup_time_to' => '12:00',
-      'delivery_date' => '2026-01-16',
-      'delivery_time_from' => '08:00',
-      'delivery_time_to' => '18:00',
-      'pickup' => new Address([
-        'name' => 'Musterfirma GmbH',
-        'street' => 'Musterstraße',
-        'house_number' => '123',
-        'zipcode' => '50667',
-        'city' => 'Köln',
-        'country' => 'DE',
-      ]),
-      'delivery' => new Address([
-        'name' => 'Empfänger GmbH',
-        'street' => 'Beispielweg',
-        'house_number' => '456',
-        'zipcode' => '10115',
-        'city' => 'Berlin',
-        'country' => 'DE',
-      ]),
-      'packages' => [
-        new Parcel([
-          'weight' => 15.5,
-          'dimensions' => new Dimensions(['length' => 60, 'width' => 40, 'height' => 30]),
-        ]),
-      ],
-    ]);
+    $response = $client->createShipment(Fixtures::shipmentData());
 
-    $client->quoteShipment($quoteRequest);
+    $this->assertSame(['success' => true, 'data' => ['id' => 'xyz789']], $response);
+  }
 
-    $this->assertSame([
-      'carrier' => 'auto',
-      'pickup_date' => '2026-01-15',
-      'pickup_time_from' => '09:00',
-      'pickup_time_to' => '12:00',
-      'delivery_date' => '2026-01-16',
-      'delivery_time_from' => '08:00',
-      'delivery_time_to' => '18:00',
-      'pickup' => [
-        'name' => 'Musterfirma GmbH',
-        'street' => 'Musterstraße',
-        'house_number' => '123',
-        'zipcode' => '50667',
-        'city' => 'Köln',
-        'country' => 'DE',
-      ],
-      'delivery' => [
-        'name' => 'Empfänger GmbH',
-        'street' => 'Beispielweg',
-        'house_number' => '456',
-        'zipcode' => '10115',
-        'city' => 'Berlin',
-        'country' => 'DE',
-      ],
-      'packages' => [
-        [
-          'weight' => 15.5,
-          'dimensions' => ['length' => 60, 'width' => 40, 'height' => 30],
-        ],
-      ],
-    ], json_decode((string) $history[0]['request']->getBody(), true));
+  public function testCreateShipmentRejectsMissingShipmentData(): void
+  {
+    $mock = new MockHandler([new Response(200, [], '{"success":true}')]);
+    $client = new Client('test-key', 'https://api.example.com', new GuzzleClient([
+      'handler' => HandlerStack::create($mock),
+    ]));
+
+    $this->expectException(ApiException::class);
+    $this->expectExceptionMessageIs('The create shipment response is missing shipment data.');
+
+    $client->createShipment(Fixtures::shipmentData());
+  }
+
+  public function testQuoteShipmentAcceptsRawArray(): void
+  {
+    $mock = new MockHandler([new Response(200, [], '{"success":true,"data":{"amount":9.99}}')]);
+    $guzzle = new GuzzleClient(['handler' => HandlerStack::create($mock)]);
+    $client = new Client('test-key', 'https://api.example.com', $guzzle);
+
+    $response = $client->quoteShipment(Fixtures::quoteData());
+
+    $this->assertSame(['success' => true, 'data' => ['amount' => 9.99]], $response);
   }
 
   public function testCreateShipmentRequiresRequiredFields(): void
   {
     $this->expectException(\InvalidArgumentException::class);
-    $this->expectExceptionMessage('ShipmentRequest requires carrier.');
+    $this->expectExceptionMessageIs('ShipmentRequest requires carrier.');
 
     new ShipmentRequest([]);
   }
@@ -348,7 +610,7 @@ class ClientTest extends TestCase
   public function testQuoteShipmentRequiresRequiredFields(): void
   {
     $this->expectException(\InvalidArgumentException::class);
-    $this->expectExceptionMessage('QuoteRequest requires pickup_date.');
+    $this->expectExceptionMessageIs('QuoteRequest requires pickup_date.');
 
     new QuoteRequest([]);
   }
