@@ -6,7 +6,6 @@ use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Exception\GuzzleException;
 use NexCargo\Models\QuoteRequest;
 use NexCargo\Models\ShipmentRequest;
-use Psr\Http\Message\ResponseInterface;
 
 class Client
 {
@@ -14,8 +13,14 @@ class Client
   private string $baseUri;
   private GuzzleClient $httpClient;
 
-  public function __construct(string $apiKey, string $baseUri = 'https://api.camelcloud.example', ?GuzzleClient $httpClient = null)
-  {
+  /**
+   * Create a new API client.
+   */
+  public function __construct(
+    string $apiKey,
+    string $baseUri = 'https://api.camelcloud.example',
+    ?GuzzleClient $httpClient = null
+  ) {
     $this->apiKey = $apiKey;
     $this->baseUri = rtrim($baseUri, '/') . '/';
     $this->httpClient = $httpClient ?? new GuzzleClient([
@@ -28,55 +33,182 @@ class Client
     ]);
   }
 
-  public function getHttpClient(): GuzzleClient
-  {
-    return $this->httpClient;
-  }
-
   /**
-   * @param array<string, mixed> $options
-   */
-  public function request(string $method, string $uri, array $options = []): ResponseInterface
-  {
-    try {
-      return $this->httpClient->request($method, $uri, $options);
-    } catch (GuzzleException $exception) {
-      throw new ApiException($exception->getMessage(), $exception->getCode(), $exception);
-    }
-  }
-
-  /**
+   * Create a shipment.
+   *
    * @param ShipmentRequest|array<string, mixed> $payload
+   * @return array<string, mixed>
+   * @throws ApiException
    */
-  public function createShipment(ShipmentRequest|array $payload): ResponseInterface
+  public function createShipment(ShipmentRequest|array $payload): array
   {
     $request = $payload instanceof ShipmentRequest ? $payload : new ShipmentRequest($payload);
 
-    return $this->request('POST', '/api/v1/shipments', ['json' => $request->toArray()]);
-  }
+    $payload = $this->requestJson(
+      'POST',
+      '/api/v1/shipments',
+      ['json' => $request->toArray()],
+      'shipment creation'
+    );
 
-  public function getShipmentLabel(string $id): ResponseInterface
-  {
-    return $this->request('GET', '/api/v1/shipments/' . $id . '/label');
-  }
+    if (!isset($payload['data']) || !is_array($payload['data'])) {
+      throw new ApiException('The create shipment response is missing shipment data.');
+    }
 
-  public function getShipmentTracking(string $id): ResponseInterface
-  {
-    return $this->request('GET', '/api/v1/shipments/' . $id . '/tracking');
-  }
-
-  public function cancelShipment(string $id): ResponseInterface
-  {
-    return $this->request('DELETE', '/api/v1/shipments/' . $id);
+    return $payload;
   }
 
   /**
-   * @param QuoteRequest|array<string, mixed> $payload
+   * Download and decode the PDF shipment label.
+   *
+   * @return string Decoded PDF file contents.
+   * @throws ApiException
    */
-  public function quoteShipment(QuoteRequest|array $payload): ResponseInterface
+  public function getShipmentLabelContent(string $id): string
+  {
+    $payload = $this->requestJson('GET', '/api/v1/shipments/' . $id . '/label', [], 'shipment label');
+    $data = $payload['data'] ?? null;
+    $label = is_array($data) ? ($data['label'] ?? null) : null;
+
+    if (!is_array($label)) {
+      throw new ApiException('The shipment label response is missing the label data.');
+    }
+
+    if (($label['format'] ?? null) !== 'pdf' || ($label['encoding'] ?? null) !== 'base64') {
+      throw new ApiException('The shipment label response has an unsupported format or encoding.');
+    }
+
+    $content = $label['content'] ?? null;
+    if (!is_string($content)) {
+      throw new ApiException('The shipment label response is missing base64 content.');
+    }
+
+    $pdfContents = base64_decode($content, true);
+
+    if ($pdfContents === false) {
+      throw new ApiException('The shipment label content is not valid base64.');
+    }
+
+    return $pdfContents;
+  }
+
+  /**
+   * Get tracking information for a shipment.
+   *
+   * @return array<string, mixed>
+   * @throws ApiException
+   */
+  public function getShipmentTracking(string $id): array
+  {
+    $payload = $this->requestJson('GET', '/api/v1/shipments/' . $id . '/tracking', [], 'shipment tracking');
+
+    if (!isset($payload['data']) || !is_array($payload['data'])) {
+      throw new ApiException('The shipment tracking response is missing tracking data.');
+    }
+
+    return $payload;
+  }
+
+  /**
+   * Cancel a shipment.
+   *
+   * @return array<string, mixed>
+   * @throws ApiException
+   */
+  public function cancelShipment(string $id): array
+  {
+    return $this->requestJson('DELETE', '/api/v1/shipments/' . $id, [], 'shipment cancellation');
+  }
+
+  /**
+   * Request a shipping quote.
+   *
+   * @param QuoteRequest|array<string, mixed> $payload
+   * @return array<string, mixed>
+   * @throws ApiException
+   */
+  public function quoteShipment(QuoteRequest|array $payload): array
   {
     $request = $payload instanceof QuoteRequest ? $payload : new QuoteRequest($payload);
 
-    return $this->request('POST', '/api/v1/shipments/quote', ['json' => $request->toArray()]);
+    return $this->requestJson(
+      'POST',
+      '/api/v1/shipments/quote',
+      ['json' => $request->toArray()],
+      'shipment quote'
+    );
+  }
+
+  /**
+   * Send a request and decode its JSON response, throwing on any HTTP or API error.
+   *
+   * @param array<string, mixed> $options
+   * @return array<string, mixed>
+   * @throws ApiException
+   */
+  private function requestJson(string $method, string $uri, array $options, string $resource): array
+  {
+    try {
+      $response = $this->httpClient->request($method, $uri, $options);
+    } catch (GuzzleException $exception) {
+      throw new ApiException($exception->getMessage(), $exception->getCode(), $exception);
+    }
+
+    $statusCode = $response->getStatusCode();
+    $isHttpError = $statusCode < 200 || $statusCode >= 300;
+
+    try {
+      $payload = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+    } catch (\JsonException $exception) {
+      if ($isHttpError) {
+        throw new ApiException(
+          "The {$resource} request failed with HTTP status {$statusCode}.",
+          $statusCode,
+          $exception
+        );
+      }
+
+      throw new ApiException("The {$resource} response contains invalid JSON.", 0, $exception);
+    }
+
+    if (!is_array($payload)) {
+      throw new ApiException("The {$resource} response must contain a JSON object.");
+    }
+
+    if ($isHttpError || ($payload['success'] ?? null) !== true) {
+      throw $this->buildErrorException($payload, $resource, $statusCode, $isHttpError);
+    }
+
+    return $payload;
+  }
+
+  /**
+   * Build an ApiException describing a failed or unsuccessful response.
+   *
+   * @param array<string, mixed> $payload
+   */
+  private function buildErrorException(
+    array $payload,
+    string $resource,
+    int $statusCode,
+    bool $isHttpError
+  ): ApiException {
+    $error = $payload['error'] ?? null;
+
+    if (!is_array($error)) {
+      $message = $isHttpError
+        ? "The {$resource} request failed with HTTP status {$statusCode}."
+        : "The {$resource} response was not successful.";
+
+      return new ApiException($message, $statusCode);
+    }
+
+    $message = is_string($error['message'] ?? null)
+      ? $error['message']
+      : "The {$resource} request failed.";
+    $apiCode = is_string($error['code'] ?? null) ? $error['code'] : null;
+    $details = is_array($error['details'] ?? null) ? $error['details'] : [];
+
+    return new ApiException($message, $statusCode, null, $apiCode, $details);
   }
 }
