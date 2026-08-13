@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<ruleset name="NexCargo API coding standard">
+    <description>NexCargo API coding standard based on PSR-12 with two-space indentation.</description>
+
+    <!-- Paths to check -->
+    <file>src</file>
+    <file>tests</file>
+
+    <!-- display progress -->
+    <arg value="p"/>
+    <!-- use colors in output -->
+    <arg name="colors"/>
+
+    <!-- Base coding standard. -->
+    <rule ref="PSR12">
+      <!-- The project accepts platform-specific line endings. -->
+      <exclude name="Generic.Files.LineEndings.InvalidEOLChar"/>
+
+      <!-- PSR-12 enforces four-space indentation. -->
+      <exclude name="Generic.WhiteSpace.ScopeIndent.Incorrect"/>
+      <exclude name="Generic.WhiteSpace.ScopeIndent.IncorrectExact"/>
+    </rule>
+
+    <!-- Require short array syntax. -->
+    <rule ref="Generic.Arrays.DisallowLongArraySyntax"/>
+
+    <!-- Use two spaces for scope indentation. -->
+    <rule ref="Generic.WhiteSpace.ScopeIndent">
+      <properties>
+        <property name="indent" value="2"/>
+        <property name="tabIndent" value="false"/>
+      </properties>
+    </rule>
+
+    <!-- Tabs must not be used for indentation. -->
+    <rule ref="Generic.WhiteSpace.DisallowTabIndent"/>
+
+    <!-- Use two spaces for switch statements. -->
+    <rule ref="PSR2.ControlStructures.SwitchDeclaration">
+      <properties>
+        <property name="indent" value="2"/>
+      </properties>
+    </rule>
+    
+    <!-- Use two spaces for multiline function calls. -->
+    <rule ref="PSR2.Methods.FunctionCallSignature">
+      <properties>
+        <property name="indent" value="2"/>
+      </properties>
+    </rule>
+
+    <!-- Use two spaces for multiline function declarations. -->
+    <rule ref="Squiz.Functions.MultiLineFunctionDeclaration">
+      <properties>
+        <property name="indent" value="2"/>
+      </properties>
+    </rule>
+</ruleset>

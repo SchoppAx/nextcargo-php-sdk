@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[0;33m'
+readonly NO_COLOR='\033[0m'
+
+# Always run commands from the repository root.
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+cd "$PROJECT_ROOT" || exit 1
+
+print_heading()
+{
+  printf '\n%b%s%b\n\n' "$YELLOW" "$1" "$NO_COLOR"
+}
+
+print_error()
+{
+  printf '\n%b%s%b\n\n' "$RED" "$1" "$NO_COLOR"
+}
+
+print_success()
+{
+  printf '\n%b%s%b\n\n' "$GREEN" "$1" "$NO_COLOR"
+}
+
+# Allow an optional newline-separated file list.
+if [[ $# -eq 1 ]]; then
+  mapfile -t STAGED_FILES <<< "$1"
+else
+  mapfile -d '' -t STAGED_FILES < <(
+    git diff \
+      --cached \
+      --name-only \
+      --diff-filter=ACMR \
+      -z \
+      -- \
+      '*.php'
+  )
+fi
+
+# Nothing to check when no PHP files are staged.
+if [[ ${#STAGED_FILES[@]} -eq 0 ]]; then
+  print_success "No staged PHP files found."
+  exit 0
+fi
+
+print_heading "Checking PHP syntax..."
+
+for file in "${STAGED_FILES[@]}"; do
+  if ! php -d display_errors=0 -l "$file"; then
+    print_error "PHP syntax check failed. Fix the error before committing."
+    exit 1
+  fi
+done
+
+print_heading "Running PHP_CodeSniffer..."
+
+if ! composer lint:check -- "${STAGED_FILES[@]}"; then
+  print_error "PHP_CodeSniffer failed. Fix the violations before committing."
+  exit 1
+fi
+
+print_heading "Running PHPStan..."
+
+if ! composer quality:check -- "${STAGED_FILES[@]}"; then
+  print_error "PHPStan failed. Fix the errors before committing."
+  exit 1
+fi
+
+print_heading "Running PHPUnit..."
+
+if ! composer test -- --colors=always; then
+  print_error "PHPUnit failed. Fix the failing tests before committing."
+  exit 1
+fi
+
+print_success "All pre-commit checks passed."
+
+exit 0
