@@ -30,7 +30,7 @@ class QuoteRequestTest extends TestCase
   public function testThrowsWhenRequiredFieldIsMissing(string $field): void
   {
     $this->expectException(\InvalidArgumentException::class);
-    $this->expectExceptionMessageIs('QuoteRequest requires ' . $field . '.');
+    $this->expectExceptionMessage('QuoteRequest requires ' . $field . '.');
 
     $data = Fixtures::quoteData();
     unset($data[$field]);

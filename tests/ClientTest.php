@@ -205,7 +205,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The shipment label response contains invalid JSON.');
+    $this->expectExceptionMessage('The shipment label response contains invalid JSON.');
 
     $client->getShipmentLabelContent('abc123');
   }
@@ -220,7 +220,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The shipment label response is missing the label data.');
+    $this->expectExceptionMessage('The shipment label response is missing the label data.');
 
     $client->getShipmentLabelContent('abc123');
   }
@@ -238,7 +238,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The shipment label response has an unsupported format or encoding.');
+    $this->expectExceptionMessage('The shipment label response has an unsupported format or encoding.');
 
     $client->getShipmentLabelContent('abc123');
   }
@@ -256,7 +256,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The shipment label response is missing base64 content.');
+    $this->expectExceptionMessage('The shipment label response is missing base64 content.');
 
     $client->getShipmentLabelContent('abc123');
   }
@@ -274,7 +274,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The shipment label content is not valid base64.');
+    $this->expectExceptionMessage('The shipment label content is not valid base64.');
 
     $client->getShipmentLabelContent('abc123');
   }
@@ -325,7 +325,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The shipment tracking request failed with HTTP status 500.');
+    $this->expectExceptionMessage('The shipment tracking request failed with HTTP status 500.');
 
     $client->getShipmentTracking('abc123');
   }
@@ -341,7 +341,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The shipment tracking request failed with HTTP status 500.');
+    $this->expectExceptionMessage('The shipment tracking request failed with HTTP status 500.');
 
     $client->getShipmentTracking('abc123');
   }
@@ -357,7 +357,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The shipment tracking request failed.');
+    $this->expectExceptionMessage('The shipment tracking request failed.');
 
     $client->getShipmentTracking('abc123');
   }
@@ -372,7 +372,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The shipment tracking response was not successful.');
+    $this->expectExceptionMessage('The shipment tracking response was not successful.');
 
     $client->getShipmentTracking('abc123');
   }
@@ -387,7 +387,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The shipment tracking response must contain a JSON object.');
+    $this->expectExceptionMessage('The shipment tracking response must contain a JSON object.');
 
     $client->getShipmentTracking('abc123');
   }
@@ -402,7 +402,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The shipment tracking response is missing tracking data.');
+    $this->expectExceptionMessage('The shipment tracking response is missing tracking data.');
 
     $client->getShipmentTracking('abc123');
   }
@@ -559,7 +559,7 @@ class ClientTest extends TestCase
     $client = new Client('test-key', 'https://api.example.com', $guzzle);
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('Connection failed');
+    $this->expectExceptionMessage('Connection failed');
 
     $client->getShipmentLabelContent('abc123');
   }
@@ -583,7 +583,7 @@ class ClientTest extends TestCase
     ]));
 
     $this->expectException(ApiException::class);
-    $this->expectExceptionMessageIs('The create shipment response is missing shipment data.');
+    $this->expectExceptionMessage('The create shipment response is missing shipment data.');
 
     $client->createShipment(Fixtures::shipmentData());
   }
@@ -602,7 +602,7 @@ class ClientTest extends TestCase
   public function testCreateShipmentRequiresRequiredFields(): void
   {
     $this->expectException(\InvalidArgumentException::class);
-    $this->expectExceptionMessageIs('ShipmentRequest requires carrier.');
+    $this->expectExceptionMessage('ShipmentRequest requires carrier.');
 
     new ShipmentRequest([]);
   }
@@ -610,7 +610,7 @@ class ClientTest extends TestCase
   public function testQuoteShipmentRequiresRequiredFields(): void
   {
     $this->expectException(\InvalidArgumentException::class);
-    $this->expectExceptionMessageIs('QuoteRequest requires pickup_date.');
+    $this->expectExceptionMessage('QuoteRequest requires pickup_date.');
 
     new QuoteRequest([]);
   }

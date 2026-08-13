@@ -31,7 +31,7 @@ class ShipmentRequestTest extends TestCase
   public function testThrowsWhenRequiredFieldIsMissing(string $field): void
   {
     $this->expectException(\InvalidArgumentException::class);
-    $this->expectExceptionMessageIs('ShipmentRequest requires ' . $field . '.');
+    $this->expectExceptionMessage('ShipmentRequest requires ' . $field . '.');
 
     $data = Fixtures::shipmentData();
     unset($data[$field]);
