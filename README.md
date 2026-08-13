@@ -2,7 +2,14 @@
 
 A PHP 8.2+ SDK for the Camel Cloud API / NexCargo carrier integration using Guzzle.
 
-[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/schoppax/nextcargo-php-sdk/actions)
+[![Latest Stable Version](https://img.shields.io/github/v/release/schoppax/nextcargo-php-sdk?label=Stable)](https://github.com/schoppax/nextcargo-php-sdk/releases)
+[![Linter](https://github.com/schoppax/nextcargo-php-sdk/actions/workflows/linter.yml/badge.svg?branch=main)](https://github.com/schoppax/nextcargo-php-sdk/actions/workflows/linter.yml)
+[![Code style](https://github.com/schoppax/nextcargo-php-sdk/actions/workflows/phpstan.yml/badge.svg?branch=main)](https://github.com/schoppax/nextcargo-php-sdk/actions/workflows/phpstan.yml)
+[![Test](https://github.com/schoppax/nextcargo-php-sdk/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/schoppax/nextcargo-php-sdk/actions/workflows/test.yml)
+[![Coverage Status](https://raw.githubusercontent.com/schoppax/nextcargo-php-sdk/badges/coverage.svg)](https://github.com/schoppax/nextcargo-php-sdk)
+
+![Minimum PHP Version](https://img.shields.io/packagist/dependency-v/schoppax/nexcargo-php-sdk/php.svg)
+![Tested on PHP 8.2 to 8.5](https://img.shields.io/badge/tested%20on-PHP%208.2%20|%208.3%20|%208.4%20|%208.5-brightgreen.svg?maxAge=2419200)
 
 ## Installation
 
@@ -10,6 +17,12 @@ Install the package from Packagist:
 
 ```bash
 composer require schoppax/nexcargo-php-sdk
+```
+
+For local development, install the dependencies and configure the project with:
+
+```bash
+composer setup
 ```
 
 ## API overview
@@ -84,7 +97,7 @@ $shipment = new ShipmentRequest([
     'packages' => [$package],
 ]);
 
-$response = $client->createShipment($shipment);
+$shipmentResponse = $client->createShipment($shipment);
 ```
 
 ## Quote request
@@ -104,13 +117,16 @@ $quote = new QuoteRequest([
     'packages' => [$package],
 ]);
 
-$response = $client->quoteShipment($quote);
+$quoteResponse = $client->quoteShipment($quote);
 ```
 
 ## Other endpoints
 
 ```php
-$label = $client->getShipmentLabel('shipment-id');
-$tracking = $client->getShipmentTracking('shipment-id');
-$cancelled = $client->cancelShipment('shipment-id');
+$pdfContents = $client->getShipmentLabelContent($trackingNumber);
+file_put_contents('shipment-label.pdf', $pdfContents);
+
+$tracking = $client->getShipmentTracking($trackingNumber);
+$cancelled = $client->cancelShipment($trackingNumber);
+$cancellationMessage = $cancelled['data']['message'];
 ```
