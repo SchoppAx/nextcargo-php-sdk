@@ -14,6 +14,7 @@ final class Fixtures
       'zipcode' => '50667',
       'city' => 'Köln',
       'country' => 'DE',
+      'phone' => '+49 123 4567890',
     ];
   }
 

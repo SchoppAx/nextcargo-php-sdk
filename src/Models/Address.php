@@ -10,6 +10,7 @@ class Address
   private ?string $zipcode = null;
   private ?string $city = null;
   private ?string $country = null;
+  private ?string $phone = null;
 
   /**
    * @param array<string, mixed> $data
@@ -36,6 +37,7 @@ class Address
       'zipcode' => $this->zipcode,
       'city' => $this->city,
       'country' => $this->country,
+      'phone' => $this->phone,
     ], static fn ($value) => $value !== null);
   }
 }
