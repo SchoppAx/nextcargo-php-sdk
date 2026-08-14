@@ -32,7 +32,7 @@ class Parcel
     ];
 
     if ($this->dimensions !== null) {
-      $data['dimensions'] = $this->dimensions->toArray();
+      $data = array_merge($data, $this->dimensions->toArray());
     }
 
     return array_filter($data, static fn ($value) => $value !== null);

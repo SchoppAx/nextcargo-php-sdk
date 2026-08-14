@@ -23,7 +23,9 @@ class ParcelTest extends TestCase
     $result = $parcel->toArray();
 
     $this->assertSame(15.5, $result['weight']);
-    $this->assertSame(['length' => 60.0, 'width' => 40.0, 'height' => 30.0], $result['dimensions']);
+    $this->assertSame(60.0, $result['length']);
+    $this->assertSame(40.0, $result['width']);
+    $this->assertSame(30.0, $result['height']);
   }
 
   public function testToArrayWithNoFieldsIsEmpty(): void

@@ -104,11 +104,9 @@ class ClientTest extends TestCase
         'delivery' => $deliveryData,
         'packages' => [[
           'weight' => $packageData['weight'],
-          'dimensions' => [
-            'length' => $packageData['length'],
-            'width' => $packageData['width'],
-            'height' => $packageData['height'],
-          ],
+          'length' => $packageData['length'],
+          'width' => $packageData['width'],
+          'height' => $packageData['height'],
         ]],
       ],
     ];
@@ -517,11 +515,9 @@ class ClientTest extends TestCase
         'delivery' => $deliveryData,
         'packages' => [[
           'weight' => $packageData['weight'],
-          'dimensions' => [
-            'length' => $packageData['length'],
-            'width' => $packageData['width'],
-            'height' => $packageData['height'],
-          ],
+          'length' => $packageData['length'],
+          'width' => $packageData['width'],
+          'height' => $packageData['height'],
         ]],
       ],
     ];
